@@ -26,6 +26,11 @@ For each ticker, dispatch **both** investor subagents **in parallel**. Use a sin
 Available investor subagents (grow this list as more are added to `.claude/agents/`):
 - `warren-buffett` — quality + moat + intrinsic value
 - `ben-graham` — margin of safety + Graham Number + balance sheet strength
+- `charlie-munger` — mental models, moat, predictability, fair price for wonderful businesses
+- `michael-burry` — deep value, contrarian, FCF yield focus, catalyst-aware
+- `cathie-wood` — disruptive innovation, 5-year growth horizon, high R&D intensity
+- `bill-ackman` — activist investor, high-quality businesses, concentrated bets with catalysts
+- `peter-lynch` — GARP (growth at reasonable price), PEG ratio, ten-bagger hunting
 
 For each subagent call, pass a prompt like:
 ```
