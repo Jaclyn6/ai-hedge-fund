@@ -18,6 +18,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# Load .env before importing src.tools.api, which reads DATA_SOURCE at module load.
+from dotenv import load_dotenv
+load_dotenv(_ROOT / ".env")
+
 from mcp.server.fastmcp import FastMCP
 
 from src.tools.api import (
@@ -63,7 +67,10 @@ _DEGRADATION_MARKERS = (
     "data not available",
     "Cannot compute",
     "Unable to compute",
-    "Limited",
+    # Specific "Limited X analysis available" phrases rather than bare "Limited"
+    # (which would false-positive on any analyzer text containing "Limited").
+    "Limited moat analysis",
+    "Limited pricing power analysis",
     "No data",
     "Not enough multi-year EPS",
     "Missing components",
@@ -171,10 +178,6 @@ def _resolve_market_cap(ticker: str, end_date: str) -> float | None:
         safe_end = (end_dt - timedelta(days=1)).strftime("%Y-%m-%d")
         window_start = (end_dt - timedelta(days=15)).strftime("%Y-%m-%d")
         prices = get_prices(ticker, window_start, safe_end)
-        # If the caller passed a historical end_date, retry with end_date itself
-        # in case that date was available.
-        if not prices and safe_end != end_date:
-            prices = get_prices(ticker, window_start, end_date)
         if prices:
             latest = max(prices, key=lambda p: p.time)
             line_items = search_line_items(

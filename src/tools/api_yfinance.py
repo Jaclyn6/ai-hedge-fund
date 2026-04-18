@@ -218,9 +218,16 @@ def get_financial_metrics(
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
     cols_sorted = sorted([c for c in fin.columns if pd.Timestamp(c).to_pydatetime() <= end_dt], reverse=True)[:limit]
 
+    # Only graft live `info.*` fields (trailingPE, priceToBook, marketCap, etc.) onto
+    # the latest row when the user is asking about recent state. For historical
+    # end_dates, those info fields reflect TODAY's Yahoo page and would silently
+    # pollute backtests. Threshold = 120 days so a query for "this quarter" still
+    # picks up live ratios even if the latest filing is ~90 days old.
+    end_date_is_recent = (datetime.now() - end_dt).days <= 120
+
     results: list[FinancialMetrics] = []
     for i, col in enumerate(cols_sorted):
-        is_latest = i == 0
+        is_latest = i == 0 and end_date_is_recent
 
         revenue = _safe(fin, ["Total Revenue", "Operating Revenue"], col)
         gross_profit = _safe(fin, ["Gross Profit"], col)
