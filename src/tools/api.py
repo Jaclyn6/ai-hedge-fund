@@ -364,3 +364,32 @@ def prices_to_df(prices: list[Price]) -> pd.DataFrame:
 def get_price_data(ticker: str, start_date: str, end_date: str, api_key: str = None) -> pd.DataFrame:
     prices = get_prices(ticker, start_date, end_date, api_key=api_key)
     return prices_to_df(prices)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data-source switcher — `DATA_SOURCE=yfinance` redirects all fetches through
+# src.tools.api_yfinance (free, no ticker gate, wider universe). Everything
+# above remains the financialdatasets.ai implementation; the overrides below
+# happen at module load so downstream imports (mcp_server, analyzers) pick up
+# the selected backend transparently. Default remains financialdatasets.ai.
+# ──────────────────────────────────────────────────────────────────────────────
+_DATA_SOURCE = os.environ.get("DATA_SOURCE", "financialdatasets").lower()
+if _DATA_SOURCE == "yfinance":
+    try:
+        from src.tools.api_yfinance import (
+            get_company_news as _yf_get_company_news,
+            get_financial_metrics as _yf_get_financial_metrics,
+            get_insider_trades as _yf_get_insider_trades,
+            get_market_cap as _yf_get_market_cap,
+            get_prices as _yf_get_prices,
+            search_line_items as _yf_search_line_items,
+        )
+        get_prices = _yf_get_prices
+        get_financial_metrics = _yf_get_financial_metrics
+        search_line_items = _yf_search_line_items
+        get_market_cap = _yf_get_market_cap
+        get_insider_trades = _yf_get_insider_trades
+        get_company_news = _yf_get_company_news
+        logger.info("Data source: yfinance (DATA_SOURCE=yfinance)")
+    except ImportError as e:
+        logger.warning("DATA_SOURCE=yfinance set but yfinance adapter failed to import (%s); falling back to financialdatasets.ai", e)
