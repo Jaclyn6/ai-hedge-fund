@@ -34,7 +34,7 @@ def main() -> None:
     if not dq or dq.get("complete"):
         return  # nothing to warn about
 
-    ticker = analysis.get("ticker", "?")
+    ticker = analysis.get("ticker") or ",".join(analysis.get("tickers", [])) or "?"
     lines: list[str] = []
     if dq.get("critical"):
         lines.append(f"🚨 CRITICAL DATA GAP — {tool_name}({ticker})")

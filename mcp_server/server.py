@@ -146,6 +146,15 @@ from src.agents.news_sentiment_analyst_analysis import (
 from src.agents.growth_analyst_analysis import (
     analyze_growth_combined,
 )
+from src.agents.risk_manager_analysis import (
+    analyze_risk,
+    DEFAULT_PORTFOLIO,
+)
+from src.agents.portfolio_manager_analysis import (
+    compact_signals,
+    compute_allowed_actions,
+    max_shares_from_limits,
+)
 from src.tools.api import prices_to_df
 
 mcp = FastMCP("hedgefund")
@@ -1669,6 +1678,164 @@ def growth_analysis(ticker: str, end_date: str) -> dict:
         result["data_quality"]["warnings"].append(core["reasoning"]["data_warning"])
         result["data_quality"]["complete"] = False
     return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Risk manager — volatility + correlation adjusted position limits
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def risk_analysis(
+    tickers: list[str],
+    end_date: str,
+    portfolio: dict | None = None,
+    start_date: str | None = None,
+) -> dict:
+    """Volatility- + correlation-adjusted position limits per ticker.
+
+    Inputs:
+    - `tickers`: list of tickers to size.
+    - `end_date`: YYYY-MM-DD. Fetches ~180 days of prior price history.
+    - `portfolio`: optional `{cash, positions, margin_requirement, margin_used}`.
+      Defaults to `{cash: 100000, positions: {}, margin_requirement: 0.5}`.
+    - `start_date`: optional override for price-history window.
+
+    Returns per-ticker:
+    - `remaining_position_limit`: $ max notional new exposure (capped by cash)
+    - `current_price`: latest close ≤ `end_date`
+    - `volatility_metrics`: daily/annualized/percentile/data_points
+    - `correlation_metrics`: avg/max correlation vs active book + top-3 list
+    - `reasoning`: {portfolio_value, base_limit_pct, corr_multiplier, …}
+
+    Plus top-level `_meta`, `data_quality`. Never makes trade decisions —
+    downstream portfolio-manager consumes this output.
+    """
+    portfolio = portfolio if portfolio is not None else dict(DEFAULT_PORTFOLIO)
+    analysis = analyze_risk(
+        tickers=list(tickers),
+        end_date=end_date,
+        portfolio=portfolio,
+        start_date=start_date,
+    )
+
+    meta = analysis.pop("_meta", {"warnings": []})
+    warnings = list(meta.get("warnings", []))
+    critical_tickers = [
+        t for t in tickers
+        if analysis.get(t, {}).get("current_price", 0.0) <= 0
+    ]
+    complete = not warnings and not critical_tickers
+
+    result = {
+        "tickers": list(tickers),
+        "end_date": end_date,
+        "start_date": meta.get("start_date"),
+        "total_portfolio_value": meta.get("total_portfolio_value"),
+        "portfolio": portfolio,
+        "risk_by_ticker": analysis,
+        "data_quality": {
+            "complete": complete,
+            "critical": bool(critical_tickers),
+            "missing_fields": [f"{t}.current_price" for t in critical_tickers],
+            "degraded_analyzers": [],
+            "warnings": warnings,
+        },
+    }
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Portfolio manager — decision inputs bundle (risk + allowed actions + signals)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def portfolio_decision_inputs(
+    tickers: list[str],
+    signals_by_ticker: dict,
+    end_date: str,
+    portfolio: dict | None = None,
+    start_date: str | None = None,
+) -> dict:
+    """Bundle risk + allowed-actions + compacted signals for the portfolio-manager subagent.
+
+    The portfolio-manager subagent calls this ONCE per `/hedge-fund-trade`
+    invocation. It consumes this bundle plus its own reasoning to pick an
+    action+quantity per ticker. This tool does no LLM work itself — the
+    subagent (Claude) is the decision-maker.
+
+    Inputs:
+    - `tickers`: tradable universe.
+    - `signals_by_ticker`: `{ticker: {agent_name: {sig|signal, conf|confidence}}}`.
+      Usually the per-bucket bucket-consensus produced by the orchestrator.
+    - `end_date`, `start_date`, `portfolio`: same as `risk_analysis`.
+
+    Returns:
+    - `current_prices`: {ticker: last_close}
+    - `max_shares`: {ticker: int} (derived from remaining position limit / price)
+    - `allowed_actions`: {ticker: {buy|sell|short|cover|hold: max_qty}} — `hold`
+      always present; actions with zero capacity pruned
+    - `signals`: compacted `{ticker: {agent: {sig, conf}}}`
+    - `risk_summary`: per-ticker {remaining_position_limit, vol%, corr}
+    - `portfolio_value`, `data_quality`
+    """
+    portfolio = portfolio if portfolio is not None else dict(DEFAULT_PORTFOLIO)
+    risk_result = risk_analysis(
+        tickers=list(tickers),
+        end_date=end_date,
+        portfolio=portfolio,
+        start_date=start_date,
+    )
+
+    risk_by_ticker = risk_result["risk_by_ticker"]
+    current_prices = {
+        t: float(risk_by_ticker.get(t, {}).get("current_price", 0.0))
+        for t in tickers
+    }
+    position_limits = {
+        t: float(risk_by_ticker.get(t, {}).get("remaining_position_limit", 0.0))
+        for t in tickers
+    }
+    max_shares = max_shares_from_limits(position_limits, current_prices)
+    allowed_actions = compute_allowed_actions(
+        tickers=list(tickers),
+        current_prices=current_prices,
+        max_shares=max_shares,
+        portfolio=portfolio,
+    )
+    compact = compact_signals(signals_by_ticker or {})
+
+    risk_summary = {}
+    for t in tickers:
+        rbt = risk_by_ticker.get(t, {})
+        vol = rbt.get("volatility_metrics", {})
+        corr = rbt.get("correlation_metrics", {})
+        risk_summary[t] = {
+            "remaining_position_limit": float(rbt.get("remaining_position_limit", 0.0)),
+            "annualized_volatility": float(vol.get("annualized_volatility", 0.0)),
+            "volatility_percentile": float(vol.get("volatility_percentile", 0.0)),
+            "avg_correlation_with_active": corr.get("avg_correlation_with_active"),
+            "base_position_limit_pct": float(
+                rbt.get("reasoning", {}).get("base_position_limit_pct", 0.0)
+            ),
+            "correlation_multiplier": float(
+                rbt.get("reasoning", {}).get("correlation_multiplier", 1.0)
+            ),
+        }
+
+    return {
+        "tickers": list(tickers),
+        "end_date": end_date,
+        "portfolio_value": risk_result.get("total_portfolio_value"),
+        "portfolio": portfolio,
+        "current_prices": current_prices,
+        "max_shares": max_shares,
+        "allowed_actions": allowed_actions,
+        "signals": compact,
+        "risk_summary": risk_summary,
+        "data_quality": risk_result["data_quality"],
+    }
 
 
 if __name__ == "__main__":
