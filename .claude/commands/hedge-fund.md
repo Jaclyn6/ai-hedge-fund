@@ -25,9 +25,9 @@ Each subagent is bucketed by its **natural investment horizon** (inferred from i
 
 | Horizon | Subagents |
 |---|---|
-| **단기 / Short (<3M)** | `stanley-druckenmiller`, `technical-analyst` |
-| **중기 / Mid (3M–2Y)** | `michael-burry`, `cathie-wood`, `bill-ackman`, `peter-lynch`, `mohnish-pabrai` |
-| **장기 / Long (>2Y)** | `warren-buffett`, `ben-graham`, `charlie-munger`, `aswath-damodaran`, `phil-fisher`, `rakesh-jhunjhunwala`, `nassim-taleb` |
+| **단기 / Short (<3M)** | `stanley-druckenmiller`, `technical-analyst`, `sentiment-analyst`, `news-sentiment-analyst` |
+| **중기 / Mid (3M–2Y)** | `michael-burry`, `cathie-wood`, `bill-ackman`, `peter-lynch`, `mohnish-pabrai`, `growth-analyst` |
+| **장기 / Long (>2Y)** | `warren-buffett`, `ben-graham`, `charlie-munger`, `aswath-damodaran`, `phil-fisher`, `rakesh-jhunjhunwala`, `nassim-taleb`, `valuation-analyst`, `fundamentals-analyst` |
 
 Grow this table as new subagents are added to `.claude/agents/`. Every subagent MUST belong to exactly one bucket.
 
@@ -50,6 +50,11 @@ Subagent roster (horizon in brackets):
 - `stanley-druckenmiller` [short] — macro/momentum + asymmetric risk-reward setups
 - `nassim-taleb` [long] — tail risk, antifragility, barbell strategy, Black Swan sentinel
 - `technical-analyst` [short] — pure price/trend/momentum/RSI/vol/volume (no fundamentals)
+- `valuation-analyst` [long] — quant 4-method DCF/owner-earnings/EV-EBITDA/RIM aggregate
+- `fundamentals-analyst` [long] — quant 4-axis ROE/growth/health/ratios scoring
+- `growth-analyst` [mid] — quant 5-factor growth with trend acceleration and margin expansion
+- `sentiment-analyst` [short] — quant insider trades (30%) + pre-classified news (70%)
+- `news-sentiment-analyst` [short] — deeper news-sentiment with LLM classification of untagged headlines
 
 For each subagent call, pass a prompt like:
 ```
@@ -89,9 +94,9 @@ Present one consolidated markdown report to the user. **Default to Korean** when
 
 | 시간축 / Horizon | 시그널 / Signal | 확신도 / Confidence | 기여 에이전트 / Contributors |
 |---|---|---|---|
-| 단기 (<3M) | ... | ... | Druckenmiller, Technical Analyst |
-| 중기 (3M~2Y) | ... | ... | Burry, Wood, Ackman, Lynch, Pabrai |
-| 장기 (>2Y) | ... | ... | Buffett, Graham, Munger, Damodaran, Fisher, Jhunjhunwala, Taleb |
+| 단기 (<3M) | ... | ... | Druckenmiller, Technical Analyst, Sentiment, News Sentiment |
+| 중기 (3M~2Y) | ... | ... | Burry, Wood, Ackman, Lynch, Pabrai, Growth Analyst |
+| 장기 (>2Y) | ... | ... | Buffett, Graham, Munger, Damodaran, Fisher, Jhunjhunwala, Taleb, Valuation, Fundamentals |
 
 **📈 단기 / Short-term (<3M)**
 

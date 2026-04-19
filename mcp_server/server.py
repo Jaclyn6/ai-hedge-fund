@@ -131,6 +131,21 @@ from src.agents.technical_analyst_analysis import (
     analyze_volume_trend as ta_volume_trend,
     TECHNICAL_WEIGHTS,
 )
+from src.agents.valuation_analyst_analysis import (
+    analyze_valuation_combined,
+)
+from src.agents.fundamentals_analyst_analysis import (
+    analyze_fundamentals_quant,
+)
+from src.agents.sentiment_analyst_analysis import (
+    analyze_sentiment_combined,
+)
+from src.agents.news_sentiment_analyst_analysis import (
+    analyze_news_sentiment_quant,
+)
+from src.agents.growth_analyst_analysis import (
+    analyze_growth_combined,
+)
 from src.tools.api import prices_to_df
 
 mcp = FastMCP("hedgefund")
@@ -1376,6 +1391,277 @@ def technical_analysis(ticker: str, end_date: str) -> dict:
             "volume_trend_analysis",
         ],
     )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Valuation analyst — 4-method DCF / owner earnings / EV-EBITDA / RIM aggregator
+# ──────────────────────────────────────────────────────────────────────────────
+
+_VALUATION_LINE_ITEMS = [
+    "free_cash_flow",
+    "net_income",
+    "depreciation_and_amortization",
+    "capital_expenditure",
+    "working_capital",
+    "total_debt",
+    "cash_and_equivalents",
+    "interest_expense",
+    "revenue",
+    "operating_income",
+    "ebit",
+    "ebitda",
+]
+
+
+@mcp.tool()
+def valuation_analysis(ticker: str, end_date: str) -> dict:
+    """Quant valuation analyst (long-term lens).
+
+    Runs four complementary valuation methodologies and aggregates by weight:
+
+    - DCF scenarios (35%): three-stage DCF with bear/base/bull probability
+      weighting, using WACC from CAPM + interest-coverage debt cost
+    - Owner earnings (35%): Buffett-style net_income + D&A − capex − ΔWC,
+      discounted at 15% required return with 25% margin of safety
+    - EV/EBITDA (20%): implied equity value from median EV/EBITDA multiple
+    - Residual Income Model (10%): Edwards-Bell-Ohlson with 20% MoS
+
+    Signal thresholds: weighted_gap > +15% bullish, < -15% bearish.
+    Confidence = min(|weighted_gap| / 30% × 100, 100).
+    """
+    metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=8)
+    line_items = search_line_items(
+        ticker, _VALUATION_LINE_ITEMS, end_date, period="ttm", limit=8
+    )
+    market_cap = _resolve_market_cap(ticker, end_date)
+
+    core = analyze_valuation_combined(metrics, line_items, market_cap)
+
+    result = {
+        "ticker": ticker,
+        "end_date": end_date,
+        "signal": core["signal"],
+        "confidence": core["confidence"],
+        "market_cap": market_cap,
+        **core["reasoning"],
+    }
+    result["data_quality"] = _assess_data_quality(
+        result,
+        critical_fields=["market_cap"],
+        analyzer_keys=[
+            "dcf_analysis",
+            "owner_earnings_analysis",
+            "ev_ebitda_analysis",
+            "residual_income_analysis",
+        ],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Fundamentals analyst — 4-axis ROE / growth / health / ratios quant score
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def fundamentals_analysis(ticker: str, end_date: str) -> dict:
+    """Quant fundamentals analyst (long-term lens).
+
+    Four-axis scoring on the most recent TTM period:
+
+    - Profitability: ROE > 15%, net margin > 20%, operating margin > 15%
+    - Growth: revenue > 10%, earnings > 10%, book value > 10% YoY
+    - Financial health: current ratio > 1.5, D/E < 0.5, FCF/EPS > 0.8
+    - Price ratios (inverse): P/E > 25, P/B > 3, P/S > 5 → bearish
+
+    Each axis produces bullish/bearish/neutral; majority vote determines
+    overall signal. Confidence = max(bullish, bearish) / 4 × 100.
+    """
+    metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=10)
+
+    core = analyze_fundamentals_quant(metrics)
+    latest = metrics[0] if metrics else None
+
+    result = {
+        "ticker": ticker,
+        "end_date": end_date,
+        "signal": core["signal"],
+        "confidence": core["confidence"],
+        "market_cap": getattr(latest, "market_cap", None) if latest else None,
+        **core["reasoning"],
+    }
+    result["data_quality"] = _assess_data_quality(
+        result,
+        critical_fields=[],
+        analyzer_keys=[
+            "profitability_signal",
+            "growth_signal",
+            "financial_health_signal",
+            "price_ratios_signal",
+        ],
+    )
+    if not metrics:
+        result["data_quality"]["critical"] = True
+        result["data_quality"]["complete"] = False
+        result["data_quality"]["missing_fields"].append("financial_metrics")
+        result["data_quality"]["warnings"].insert(
+            0, "CRITICAL: cannot complete fundamentals analysis — no financial metrics returned"
+        )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sentiment analyst — insider trades (30%) + pre-classified news (70%)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def sentiment_analysis(ticker: str, end_date: str) -> dict:
+    """Quant sentiment analyst (short-term lens).
+
+    Combines insider trading flow (30% weight) with pre-classified news
+    sentiment (70% weight). Insider buys = bullish, sells = bearish.
+    News 'positive'/'negative' labels are used as-is (no LLM classification
+    — see news_sentiment_analysis for LLM-assisted classification).
+
+    Signal: weighted bullish vs bearish majority.
+    Confidence: max(weighted_bullish, weighted_bearish) / total_weighted × 100.
+    """
+    insider_trades = get_insider_trades(ticker, end_date, limit=1000)
+    company_news = get_company_news(ticker, end_date, limit=100)
+
+    core = analyze_sentiment_combined(insider_trades, company_news)
+
+    result = {
+        "ticker": ticker,
+        "end_date": end_date,
+        "signal": core["signal"],
+        "confidence": core["confidence"],
+        **core["reasoning"],
+    }
+
+    # Treat total absence of both data sources as critical.
+    no_insider = not insider_trades
+    no_news = not company_news
+    critical_fields: list[str] = []
+    if no_insider and no_news:
+        critical_fields = ["insider_trades_and_news"]
+
+    result["data_quality"] = _assess_data_quality(
+        result,
+        critical_fields=critical_fields,
+        analyzer_keys=[
+            "insider_trading",
+            "news_sentiment",
+            "combined_analysis",
+        ],
+    )
+    if "data_warning" in core["reasoning"]:
+        result["data_quality"]["warnings"].append(core["reasoning"]["data_warning"])
+        result["data_quality"]["complete"] = False
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# News-sentiment analyst — LLM-assisted (subagent classifies untagged titles)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def news_sentiment_analysis(ticker: str, end_date: str) -> dict:
+    """Deep news-sentiment analyst (short-term lens).
+
+    Aggregates pre-classified news into bullish/bearish/neutral counts and
+    surfaces up to 10 most-recent **untagged** headlines so the calling
+    subagent can classify them itself. Unlike v1, this tool does not call an
+    LLM — the Claude Code subagent is already the LLM and handles
+    classification of unlabeled titles directly in its reasoning step.
+
+    Signal: bullish vs bearish majority across classified articles.
+    Subagent responsibility: classify untagged titles, reconcile into final
+    signal + confidence.
+    """
+    company_news = get_company_news(ticker, end_date, limit=100)
+
+    core = analyze_news_sentiment_quant(company_news)
+
+    result = {
+        "ticker": ticker,
+        "end_date": end_date,
+        "signal": core["signal"],
+        "confidence": core["confidence"],
+        **core["reasoning"],
+    }
+
+    critical_fields: list[str] = []
+    if not company_news:
+        critical_fields = ["company_news"]
+
+    result["data_quality"] = _assess_data_quality(
+        result,
+        critical_fields=critical_fields,
+        analyzer_keys=["news_sentiment"],
+    )
+    if "data_warning" in core["reasoning"]:
+        result["data_quality"]["warnings"].append(core["reasoning"]["data_warning"])
+        result["data_quality"]["complete"] = False
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Growth analyst — 5-factor weighted (growth/valuation/margins/insider/health)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def growth_analysis(ticker: str, end_date: str) -> dict:
+    """Quant growth analyst (mid-term lens).
+
+    Five-factor weighted score across 12 TTM periods:
+
+    - Historical growth (40%): revenue/EPS/FCF levels + trend acceleration
+    - Growth valuation (25%): PEG < 1 and P/S < 2 reward, expensive penalize
+    - Margin expansion (15%): gross/operating/net margin trajectories
+    - Insider conviction (10%): (buys − sells) / (buys + sells) ratio
+    - Financial health (10%): D/E and current ratio start at 1.0, subtract
+
+    Thresholds: weighted_score > 0.6 bullish, < 0.4 bearish, else neutral.
+    Requires at least 4 periods to compute trends.
+    """
+    metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=12)
+    insider_trades = get_insider_trades(ticker, end_date, limit=1000)
+
+    core = analyze_growth_combined(metrics, insider_trades)
+    latest = metrics[0] if metrics else None
+
+    result = {
+        "ticker": ticker,
+        "end_date": end_date,
+        "signal": core["signal"],
+        "confidence": core["confidence"],
+        "market_cap": getattr(latest, "market_cap", None) if latest else None,
+        **core["reasoning"],
+    }
+
+    critical_fields: list[str] = []
+    if not metrics or len(metrics) < 4:
+        critical_fields = ["insufficient_history"]
+
+    result["data_quality"] = _assess_data_quality(
+        result,
+        critical_fields=critical_fields,
+        analyzer_keys=[
+            "historical_growth",
+            "growth_valuation",
+            "margin_expansion",
+            "insider_conviction",
+            "financial_health",
+        ],
+    )
+    if "data_warning" in core["reasoning"]:
+        result["data_quality"]["warnings"].append(core["reasoning"]["data_warning"])
+        result["data_quality"]["complete"] = False
     return result
 
 
