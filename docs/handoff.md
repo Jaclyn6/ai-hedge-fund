@@ -2,65 +2,64 @@
 
 ## 1. Snapshot Timestamp
 
-2026-04-20 (session continued from 2026-04-19)
+2026-04-20 (continued from 2026-04-19)
 
 ## 2. Current Phase / Step
 
-**Native-layer conversion, investor-personality batch — complete.**  13/19 v1 agents converted to Claude Code subagents + MCP tools. The remaining 6 agents (4 quant analysts + risk/portfolio managers) and one partially-started Technical Analyst are the next step.
+**Phase 1 complete — all 5 remaining quant analysts converted + multi-horizon orchestration landed.** The native layer now exposes 25 MCP tools (6 raw data + 19 analyst tools) and 19 Claude Code subagents (13 personality investors + 6 quant analysts). Previous session's partial Technical Analyst work is committed and wired into the short bucket.
 
-Partial in-progress: Technical Analyst conversion. `src/agents/technical_analyst_analysis.py` (299 lines) exists locally uncommitted, and `mcp_server/server.py` has an unfinished import block for it (no `@mcp.tool()` wrapper yet). Either finish it or revert before starting a new batch.
+Next up (not started): **Phase 2 — Risk Manager + Portfolio Manager orchestrator**. Different architecture than the 19 signal agents — outputs `{action, quantity, confidence}` per ticker using risk budgets, not bullish/bearish strings.
 
 ## 3. Last Commit
 
-`6f83ad8` `fix: close code-review findings across 3 analyzers + yfinance adapter (#6)` — branch `main`, in sync with `origin/main`.
+`6f9c45f fix: close 2 code-review findings on quant analysts` — branch `main`, in sync with `origin/main`.
 
-**Uncommitted changes (intentional, per user):**
-- `M  mcp_server/server.py` — adds import of `technical_analyst_analysis` symbols. Import is live but no `technical_analyst_analysis` MCP tool defined yet → server currently fails to start unless the import is valid. Important.
-- `??  src/agents/technical_analyst_analysis.py` — 299 lines, six analyzers + weights. Important.
+Working tree: clean. No uncommitted files.
 
 ## 4. Active Thread
 
-- **Just finished:** Code-review round 2 (PR #6 merged). Closed 2 critical silent bugs (Damodaran `ebit`/`interest_expense` from wrong Pydantic model; Burry `ev_to_ebit` non-existent field → fell back to `enterprise_value_to_ebitda_ratio`) + 1 Taleb v1-parity drift (removed `pre_signal`) + 1 slash-command wording. Audited 11 other `_analysis.py` modules clean.
-- **Starting next:** either (a) finish Technical Analyst tool + subagent + parity review, or (b) start the remaining quant batch (valuation, sentiment, fundamentals) + Risk Manager + Portfolio Manager.
-- **Pending user test:** `/hedge-fund TSLA` post-restart to verify today-date default and updated subagent prompts work end-to-end.
+- **Just finished:** Phase 1 — extracted 5 pure analyzer modules (valuation, fundamentals, sentiment, news-sentiment, growth), added 5 `@mcp.tool()` wrappers in `mcp_server/server.py`, wrote 5 quant-style subagent prompts, updated `/hedge-fund` HORIZON_BUCKETS (4 short / 6 mid / 9 long), and ran a 5-agent parallel code review. Two high-confidence (≥80) findings closed in `6f9c45f`:
+  1. `valuation_analysis` silently dropped `data_warning` in the line_items<2 / all-methods-zero edge case → now propagates to `data_quality.warnings` + sets `critical=true`.
+  2. `fundamentals_analysis` + `growth_analysis` bypassed `_resolve_market_cap` and read `metrics[0].market_cap` (up to ±10% stale) → now route through the live helper, matching valuation / buffett / graham.
+- **Starting next:** Phase 2 (Risk Manager + Portfolio Manager).
+- **Outstanding test:** post-restart, run `/hedge-fund TSLA` (or similar) to verify the orchestrator dispatches all 20 subagents across 3 buckets and produces a multi-horizon report. The 5 new subagents need a Claude Code restart to be picked up.
 
 ## 5. Pending User Decisions
 
-- Whether to finish Technical Analyst (currently partial) before the quant batch, or after
-- Whether Risk Manager / Portfolio Manager should reuse the same subagent+MCP pattern or get a different architecture (they produce position sizes / trade decisions, not bullish/bearish signals)
-- Whether to add a beta data source for Damodaran (currently always NA — yfinance and financialdatasets.ai neither expose it in our schemas)
+- **Phase 2 architecture:** Risk Manager + Portfolio Manager produce position sizes, not bullish/bearish strings. Two options: (a) keep signal agents' JSON schema but add `{action, quantity, confidence}` fields (simplest); or (b) make the Portfolio Manager a `/hedge-fund-trade` orchestrator that consumes the existing 20 signal agents' output + risk budget and issues trades. User preference TBD.
+- **Per-investor persona review skill for quant agents:** user memory says "always invoke review-investor-agent skill" after any new subagent. For quant agents with no v1 LLM prompt, I did an inline threshold/weight parity audit instead. If user wants the formal skill run on all 5 new quant subagents retroactively, that's a small follow-up batch.
+- **Damodaran beta input:** still always NA — risk score capped at 2/3. Not blocking Phase 2.
 
 ## 6. Recent Context (last 5 commits)
 
-- `6f83ad8` fix: code-review round-2 — closed 2 silent FinancialMetrics/LineItem mismatches, Taleb v1-parity drift, stale slash-command wording; extended yfinance adapter with 7 new field mappings
-- `a544f78` fix: Damodaran DCF — first of the silent `metrics.<rawfield>` bugs; introduced the audit pattern that found the others
-- `ffdcdd4` fix: default end_date to today (not last month-end) — old defensive default became stale after `_resolve_market_cap` fix
-- `f84dc9f` feat: add 6 more investors (Damodaran, Fisher, Pabrai, Jhunjhunwala, Druckenmiller, Taleb) — completes the 13-investor personality set
-- `2281a13` feat: add 5 more investors (Munger, Burry, Wood, Ackman, Lynch) — validated the parallel-dispatch + parity-review pattern
+- `6f9c45f` fix: close 2 code-review findings on quant analysts — valuation `data_warning` propagation + fundamentals/growth live market-cap
+- `74154ba` feat: add 5 quant analysts (valuation, fundamentals, sentiment, news-sentiment, growth) — 12 files, +1911 lines, all 25 MCP tools green on AAPL smoke test
+- `3e8f7a3` feat: multi-horizon consensus + technical-analyst subagent — `/hedge-fund` outputs 3 independent bucket votes (short/mid/long) instead of one global consensus
+- `a1d97cb` docs: update handoff snapshot (from the prior session)
+- `6f83ad8` fix: close code-review findings across 3 analyzers + yfinance adapter (#6)
 
-## 7. Open Issues to Watch
+## 7. Open Issues / Known Gaps
 
-- **Beta data missing** — Damodaran risk score effectively capped at 2/3 (beta check always NA). yfinance `.info` has `beta` but we don't expose it on `FinancialMetrics`; would need either a schema extension or a side-channel fetch. See `src/agents/aswath_damodaran_analysis.py:78`.
-- **AAPL interest_expense NA on yfinance** — Damodaran interest-coverage check NA for AAPL specifically (NVDA works, returns 691.4x). yfinance doesn't populate the field consistently across tickers.
-- **v1 parent files have inherited silent bugs** — `src/agents/aswath_damodaran.py`, `src/agents/michael_burry.py`, `src/agents/nassim_taleb.py` still contain the `metrics.<rawfield>` / `ev_to_ebit` / 0.7-0.3 drifts. Intentional per CLAUDE.md "don't edit v1 files." v1 LangGraph path remains buggy.
-- **yfinance `_LINE_ITEM_SOURCES` is best-effort** — silent `None` for any canonical field not in the dict. Caught downstream by `data_quality` guardrail, but adding a new investor analyzer that requests an unknown field will degrade silently. See `src/tools/api_yfinance.py:32`.
-- **Technical Analyst is half-wired** — see Section 3. Start next session by deciding finish-vs-revert.
-- **MCP server process caches the old code** — Claude Code must be fully restarted for MCP server changes (`mcp_server/server.py`, `.env` DATA_SOURCE, subagent `.md` prompts) to take effect. `/reload-plugins` is NOT enough.
+- **`review-investor-agent` skill not run for quant-5 batch.** User memory says "always invoke after new `.claude/agents/<investor>.md`" — I did inline threshold/weight parity audit instead because quant agents have no v1 LLM prompt to drift from. User can call it retroactively if strict compliance desired.
+- **Analyzer sub-dict `details` coverage gap.** Growth / sentiment / news-sentiment sub-dicts don't emit a `details` string, so `_has_degradation` can't catch per-analyzer issues. Top-level `data_warning` path does surface critical gaps, so the guardrail is not silent, but per-analyzer granularity is missing. Deferred — not code-review-blocking.
+- **yfinance `_LINE_ITEM_SOURCES` missing `total_debt`, `cash_and_equivalents`, `working_capital`** — pre-existing gap. On yfinance backend, valuation's WACC falls back to pure cost-of-equity (~10.5%) and owner-earnings ΔWC is 0. Not blocking but worth fixing alongside Phase 2.
+- **Unit test backfill** — new analyzers only have manual smoke tests. Not blocking.
 
 ## 8. Environment State
 
-- **Python**: 3.13 (project pinned `^3.11`; works on 3.13)
-- **OS**: Windows 11, project at `D:\Claude Project\ai-hedgefund`
-- **Data source**: `DATA_SOURCE=yfinance` active in `.env` (free, no key, supports `.KS`/`.KQ` etc.)
-- **MCP servers active**: `hedgefund` (19 tools: 6 raw + 13 investor — `buffett`, `graham`, `munger`, `burry`, `ackman`, `wood`, `lynch`, `damodaran`, `fisher`, `pabrai`, `jhunjhunwala`, `druckenmiller`, `taleb`)
-- **Claude Code plugins installed (project-scoped)**: `code-review@claude-plugins-official`
-- **Secrets in `.env`**: `DATA_SOURCE` (not a secret); `FINANCIAL_DATASETS_API_KEY` not set (yfinance doesn't need it)
-- **Git remotes**: `origin` → Jaclyn6/ai-hedge-fund (fork, push target); `upstream` → virattt/ai-hedge-fund (original, pull-only)
-- **Branch**: `main`, up-to-date with `origin/main`
-- **Session worktrees**: `.claude/worktrees/` gitignored; do NOT spawn — work in main project dir per feedback memory
+- Branch: `main`
+- Working tree: **clean**
+- Remote in sync: `origin/main` = HEAD
+- MCP tool count: 25 (verified via `mcp._tool_manager._tools`)
+- Subagent count: 19 (`.claude/agents/*.md`)
+- Data source: `DATA_SOURCE` env var, defaults to `financialdatasets` (free-tier limited to AAPL/GOOGL/MSFT/NVDA/TSLA); `yfinance` switch available for broader coverage
 
 ## 9. How to Resume
 
-1. Read `CLAUDE.md` to understand the Claude Code Native Layer architecture and the "Operating instructions" section (end_date defaulting, subagent invocation, parity-review skill).
-2. Decide Technical Analyst disposition: either finish the MCP tool + subagent + run `review-investor-agent` skill, or `git checkout -- mcp_server/server.py && rm src/agents/technical_analyst_analysis.py` and start the full quant batch fresh.
-3. Next concrete action: run `/hedge-fund TSLA` from a restarted Claude Code session to confirm today-date default + 13 investor dispatch works; if green, launch the 4 parallel conversion agents for the remaining quant analysts (pattern proven across PRs #2/#3).
+1. Read `CLAUDE.md`, `C:\Users\Jacly\.claude\projects\D--Claude-Project-ai-hedgefund\memory\MEMORY.md`, and this file.
+2. For Phase 2, start by reading `src/agents/risk_manager.py` (317 L) and `src/agents/portfolio_manager.py` (262 L) to understand the v1 architecture:
+   - Risk Manager: fetches prices → computes volatility → writes `current_prices` + `remaining_position_limit` into signals dict (runs AFTER all analysts).
+   - Portfolio Manager: consumes every analyst's `{signal, confidence}` + risk limits → single LLM call → `PortfolioManagerOutput` (buy/sell/short/cover per ticker). No weighted voting aggregator — the LLM does the aggregation.
+3. Decide architecture (see Pending Decisions §5). Recommended: extend the existing 20-subagent pipeline with one new `portfolio-manager` subagent that calls a new `mcp__hedgefund__portfolio_decision` tool which internally runs the risk-budget math + aggregates the 20 bucket signals into `{action, quantity}`.
+4. Reuse the Phase 1 pipeline: extract pure `_analysis.py` (or `_decision.py`) modules first, then MCP tool, then subagent `.md`, then wire into `/hedge-fund`.
+5. Claude Code must be restarted for the 5 Phase-1 quant subagents to be picked up by `/hedge-fund`. If `mcp__hedgefund__valuation_analysis` etc. aren't listed, that's the cause.
