@@ -31,6 +31,12 @@ Available investor subagents (grow this list as more are added to `.claude/agent
 - `cathie-wood` — disruptive innovation, 5-year growth horizon, high R&D intensity
 - `bill-ackman` — activist investor, high-quality businesses, concentrated bets with catalysts
 - `peter-lynch` — GARP (growth at reasonable price), PEG ratio, ten-bagger hunting
+- `aswath-damodaran` — "Dean of Valuation," story + numbers + disciplined DCF with CAPM cost of equity
+- `phil-fisher` — meticulous growth + 15 Points, scuttlebutt-style deep quality research
+- `mohnish-pabrai` — Dhandho investor, "heads I win / tails I don't lose much," low-risk doubles
+- `rakesh-jhunjhunwala` — Big Bull of India, patient long-term growth conviction
+- `stanley-druckenmiller` — macro/momentum + asymmetric risk-reward setups
+- `nassim-taleb` — tail risk, antifragility, barbell strategy, Black Swan sentinel
 
 For each subagent call, pass a prompt like:
 ```
