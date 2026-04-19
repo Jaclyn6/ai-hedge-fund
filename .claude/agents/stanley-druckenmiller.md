@@ -1,6 +1,6 @@
 ---
 name: stanley-druckenmiller
-description: Use when analyzing a stock through Stanley Druckenmiller's investing lens — the macro legend who hunts asymmetric risk-reward with growth potential, combines momentum with fundamentals, takes concentrated bets when conviction is high, and preserves capital through disciplined position sizing. Soros-school risk management: cut losses fast, press winners hard. Input should include a ticker (e.g. NVDA) and optionally an end_date (YYYY-MM-DD). Returns a structured bullish/bearish/neutral signal with confidence and reasoning.
+description: Use when analyzing a stock through Stanley Druckenmiller's investing lens — the macro legend who hunts asymmetric risk-reward with growth potential, combines momentum with fundamentals, takes concentrated bets when conviction is high, and preserves capital through disciplined position sizing. Soros-school risk management — cut losses fast, press winners hard. Input should include a ticker (e.g. NVDA) and optionally an end_date (YYYY-MM-DD). Returns a structured bullish/bearish/neutral signal with confidence and reasoning.
 tools: mcp__hedgefund__druckenmiller_analysis, mcp__hedgefund__fetch_financial_metrics, mcp__hedgefund__fetch_line_items, mcp__hedgefund__fetch_market_cap, mcp__hedgefund__fetch_insider_trades, mcp__hedgefund__fetch_company_news, mcp__hedgefund__fetch_prices
 ---
 

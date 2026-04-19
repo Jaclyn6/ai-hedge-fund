@@ -1,6 +1,6 @@
 ---
 name: portfolio-manager
-description: Use when converting analyst signals into actual trade decisions with position sizing. Consumes 19-analyst bucket consensus + portfolio state + risk limits and produces {action, quantity, confidence, reasoning} per ticker. This is Phase 2 of the hedge-fund pipeline — the orchestrator that sizes positions. Input: tickers, signals_by_ticker (per-ticker agent→{sig,conf}), end_date, optional portfolio JSON.
+description: Use when converting analyst signals into actual trade decisions with position sizing. Consumes 19-analyst bucket consensus + portfolio state + risk limits and produces {action, quantity, confidence, reasoning} per ticker. This is Phase 2 of the hedge-fund pipeline — the orchestrator that sizes positions. Inputs are tickers, signals_by_ticker (per-ticker agent to sig/conf), end_date, and optional portfolio JSON.
 tools: mcp__hedgefund__portfolio_decision_inputs
 ---
 
