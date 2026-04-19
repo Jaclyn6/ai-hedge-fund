@@ -1456,6 +1456,14 @@ def valuation_analysis(ticker: str, end_date: str) -> dict:
             "residual_income_analysis",
         ],
     )
+    # The analyzer surfaces a top-level `data_warning` when line_items are
+    # insufficient or all four methods return zero. Propagate it to the
+    # guardrail so the subagent emits `signal: "unavailable"` instead of a
+    # misleading neutral/0 result.
+    if "data_warning" in core["reasoning"]:
+        result["data_quality"]["warnings"].append(core["reasoning"]["data_warning"])
+        result["data_quality"]["complete"] = False
+        result["data_quality"]["critical"] = True
     return result
 
 
@@ -1481,14 +1489,13 @@ def fundamentals_analysis(ticker: str, end_date: str) -> dict:
     metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=10)
 
     core = analyze_fundamentals_quant(metrics)
-    latest = metrics[0] if metrics else None
 
     result = {
         "ticker": ticker,
         "end_date": end_date,
         "signal": core["signal"],
         "confidence": core["confidence"],
-        "market_cap": getattr(latest, "market_cap", None) if latest else None,
+        "market_cap": _resolve_market_cap(ticker, end_date),
         **core["reasoning"],
     }
     result["data_quality"] = _assess_data_quality(
@@ -1633,14 +1640,13 @@ def growth_analysis(ticker: str, end_date: str) -> dict:
     insider_trades = get_insider_trades(ticker, end_date, limit=1000)
 
     core = analyze_growth_combined(metrics, insider_trades)
-    latest = metrics[0] if metrics else None
 
     result = {
         "ticker": ticker,
         "end_date": end_date,
         "signal": core["signal"],
         "confidence": core["confidence"],
-        "market_cap": getattr(latest, "market_cap", None) if latest else None,
+        "market_cap": _resolve_market_cap(ticker, end_date),
         **core["reasoning"],
     }
 
