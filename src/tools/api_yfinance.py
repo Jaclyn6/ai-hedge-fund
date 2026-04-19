@@ -72,6 +72,8 @@ _LINE_ITEM_SOURCES: dict[str, list[tuple[str, list[str]]]] = {
 def _safe(df, row_candidates: list[str], col) -> float | None:
     if df is None or df.empty:
         return None
+    if col not in df.columns:
+        return None
     for name in row_candidates:
         if name in df.index:
             val = df.loc[name, col]
