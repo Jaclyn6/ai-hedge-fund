@@ -42,20 +42,28 @@ def analyze_value(metrics, line_items, market_cap):
     else:
         details.append("FCF data unavailable")
 
-    # EV/EBIT (from financial metrics)
+    # EV/EBITDA (from financial metrics). v1 Burry looked for `ev_to_ebit` which
+    # doesn't exist on the FinancialMetrics schema; we fall back to the
+    # available `enterprise_value_to_ebitda_ratio` (EBITDA-based, close proxy).
+    # Thresholds widened slightly since EBITDA ≥ EBIT (D&A add-back) so the
+    # ratio is naturally a bit lower.
     if metrics:
-        ev_ebit = getattr(metrics[0], "ev_to_ebit", None)
-        if ev_ebit is not None:
-            if ev_ebit < 6:
+        m0 = metrics[0]
+        ev_mult = (
+            getattr(m0, "ev_to_ebit", None)
+            or getattr(m0, "enterprise_value_to_ebitda_ratio", None)
+        )
+        if ev_mult is not None:
+            if ev_mult < 6:
                 score += 2
-                details.append(f"EV/EBIT {ev_ebit:.1f} (<6)")
-            elif ev_ebit < 10:
+                details.append(f"EV/EBITDA {ev_mult:.1f} (<6)")
+            elif ev_mult < 10:
                 score += 1
-                details.append(f"EV/EBIT {ev_ebit:.1f} (<10)")
+                details.append(f"EV/EBITDA {ev_mult:.1f} (<10)")
             else:
-                details.append(f"High EV/EBIT {ev_ebit:.1f}")
+                details.append(f"High EV/EBITDA {ev_mult:.1f}")
         else:
-            details.append("EV/EBIT data unavailable")
+            details.append("EV multiple unavailable")
     else:
         details.append("Financial metrics unavailable")
 

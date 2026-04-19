@@ -21,7 +21,7 @@ If no date is given, default to **today's date** (`YYYY-MM-DD` format). Do not a
 
 ## Execution
 
-For each ticker, dispatch **both** investor subagents **in parallel**. Use a single message containing multiple Agent tool calls — do not serialize.
+For each ticker, dispatch **every** investor subagent listed below **in parallel**. Use a single message containing one Agent tool call per subagent per ticker — do not serialize.
 
 Available investor subagents (grow this list as more are added to `.claude/agents/`):
 - `warren-buffett` — quality + moat + intrinsic value

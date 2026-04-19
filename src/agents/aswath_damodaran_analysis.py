@@ -96,9 +96,12 @@ def analyze_risk_profile(metrics: list, line_items: list) -> dict[str, any]:
     else:
         details.append("D/E NA")
 
-    # Interest coverage
-    ebit = getattr(latest, "ebit", None)
-    interest = getattr(latest, "interest_expense", None)
+    # Interest coverage — ebit and interest_expense are LineItem fields, not
+    # FinancialMetrics fields. Same v1-inherited bug pattern as the FCFF fix.
+    # Pull from line_items[0] first with a metrics fallback.
+    li0 = line_items[0] if line_items else None
+    ebit = (getattr(li0, "ebit", None) if li0 else None) or getattr(latest, "ebit", None)
+    interest = (getattr(li0, "interest_expense", None) if li0 else None) or getattr(latest, "interest_expense", None)
     if ebit and interest and interest != 0:
         coverage = ebit / abs(interest)
         if coverage > 3:
