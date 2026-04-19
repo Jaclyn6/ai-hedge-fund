@@ -122,6 +122,15 @@ from src.agents.nassim_taleb_analysis import (
     analyze_volatility_regime as taleb_vol_regime,
     analyze_black_swan_sentinel as taleb_black_swan,
 )
+from src.agents.technical_analyst_analysis import (
+    analyze_momentum as ta_momentum,
+    analyze_trend as ta_trend,
+    analyze_rsi as ta_rsi,
+    analyze_volatility_regime as ta_vol_regime,
+    analyze_drawdown as ta_drawdown,
+    analyze_volume_trend as ta_volume_trend,
+    TECHNICAL_WEIGHTS,
+)
 from src.tools.api import prices_to_df
 
 mcp = FastMCP("hedgefund")
@@ -153,6 +162,12 @@ _DEGRADATION_MARKERS = (
     "Missing components",
     "missing or invalid",
     "Missing or invalid",
+    # Technical-analyst markers
+    "Insufficient price history",
+    "Insufficient history across",
+    "Insufficient returns",
+    "Invalid latest close",
+    "Baseline volume is zero",
 )
 
 
@@ -1261,6 +1276,105 @@ def taleb_analysis(ticker: str, end_date: str) -> dict:
         analyzer_keys=["tail_risk_analysis", "antifragility_analysis", "convexity_analysis",
                        "fragility_analysis", "skin_in_game_analysis",
                        "volatility_regime_analysis", "black_swan_analysis"],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Technical Analyst — short-term (<3M) price/trend/momentum/volume lens.
+# No fundamentals. Fills the short-term bucket alongside Druckenmiller.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def technical_analysis(ticker: str, end_date: str) -> dict:
+    """Pure technical analysis (short-term <3M lens).
+
+    Fetches ~13 months of daily OHLCV (needed for 200-day MA) and runs six
+    analyzers, each on a 0-10 scale:
+
+    - momentum (1M/3M/6M/12M return composite)
+    - trend (price vs 20/50/200-day SMA; golden/death cross)
+    - RSI(14) regime
+    - volatility regime (21d realized vs 12M baseline; ATR%)
+    - 1M max drawdown
+    - volume trend (20d vs 100d, cross-checked against price move)
+
+    Composite weights (sum to 1.0): 35% momentum, 25% trend, 15% RSI,
+    10% volatility, 10% drawdown, 5% volume. Pre-signal thresholds:
+    ≥6.5 bullish, ≤3.5 bearish, else neutral.
+    """
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    # ~13 months to guarantee at least 252 trading days for 200-day MA
+    start_date = (end_dt - timedelta(days=400)).strftime("%Y-%m-%d")
+    prices = get_prices(ticker, start_date, end_date)
+    prices_df = prices_to_df(prices) if prices else None
+    import pandas as pd
+    if prices_df is None:
+        prices_df = pd.DataFrame()
+
+    momentum = ta_momentum(prices_df)
+    trend = ta_trend(prices_df)
+    rsi = ta_rsi(prices_df)
+    vol_regime = ta_vol_regime(prices_df)
+    drawdown = ta_drawdown(prices_df)
+    volume_trend = ta_volume_trend(prices_df)
+
+    weighted_score = (
+        momentum.get("score", 0) * TECHNICAL_WEIGHTS["momentum"]
+        + trend.get("score", 0) * TECHNICAL_WEIGHTS["trend"]
+        + rsi.get("score", 0) * TECHNICAL_WEIGHTS["rsi"]
+        + vol_regime.get("score", 0) * TECHNICAL_WEIGHTS["volatility_regime"]
+        + drawdown.get("score", 0) * TECHNICAL_WEIGHTS["drawdown"]
+        + volume_trend.get("score", 0) * TECHNICAL_WEIGHTS["volume_trend"]
+    )
+
+    if weighted_score >= 6.5:
+        pre_signal = "bullish"
+    elif weighted_score <= 3.5:
+        pre_signal = "bearish"
+    else:
+        pre_signal = "neutral"
+
+    # Latest close for reference in the subagent's reasoning
+    latest_close = None
+    if not prices_df.empty and "close" in prices_df.columns:
+        try:
+            latest_close = float(prices_df["close"].iloc[-1])
+        except (IndexError, ValueError, TypeError):
+            latest_close = None
+
+    n_bars = len(prices_df) if not prices_df.empty else 0
+    # Flag critical when we don't even have a minimum readable chart
+    sufficient_price_history = True if n_bars >= 21 else None
+
+    result = {
+        "ticker": ticker,
+        "end_date": end_date,
+        "pre_signal": pre_signal,
+        "score": round(weighted_score, 2),
+        "max_score": 10,
+        "latest_close": latest_close,
+        "price_bars": n_bars,
+        "sufficient_price_history": sufficient_price_history,
+        "momentum_analysis": momentum,
+        "trend_analysis": trend,
+        "rsi_analysis": rsi,
+        "volatility_regime_analysis": vol_regime,
+        "drawdown_analysis": drawdown,
+        "volume_trend_analysis": volume_trend,
+    }
+    result["data_quality"] = _assess_data_quality(
+        result,
+        critical_fields=["sufficient_price_history"],
+        analyzer_keys=[
+            "momentum_analysis",
+            "trend_analysis",
+            "rsi_analysis",
+            "volatility_regime_analysis",
+            "drawdown_analysis",
+            "volume_trend_analysis",
+        ],
     )
     return result
 
