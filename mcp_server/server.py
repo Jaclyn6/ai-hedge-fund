@@ -1242,15 +1242,11 @@ def taleb_analysis(ticker: str, end_date: str) -> dict:
         tail_risk, antifragility, convexity, fragility, skin, vol_regime, black_swan
     ])
 
-    if max_score and total_score >= 0.7 * max_score:
-        pre_signal = "bullish"
-    elif max_score and total_score <= 0.3 * max_score:
-        pre_signal = "bearish"
-    else:
-        pre_signal = "neutral"
-
+    # Unlike other investors, v1 Taleb does not precompute a score→signal
+    # threshold — the LLM reads the raw ratio and decides. Emit score/max_score
+    # only (no pre_signal) to stay faithful to v1 behavior.
     result = {
-        "ticker": ticker, "end_date": end_date, "pre_signal": pre_signal,
+        "ticker": ticker, "end_date": end_date,
         "score": total_score, "max_score": max_score, "market_cap": market_cap,
         "tail_risk_analysis": tail_risk,
         "antifragility_analysis": antifragility,

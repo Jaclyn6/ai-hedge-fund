@@ -65,6 +65,18 @@ _LINE_ITEM_SOURCES: dict[str, list[tuple[str, list[str]]]] = {
     "earnings_per_share": [("financials", ["Basic EPS", "Diluted EPS"])],
     "current_assets": [("balance_sheet", ["Current Assets"])],
     "current_liabilities": [("balance_sheet", ["Current Liabilities"])],
+    "ebit": [("financials", ["EBIT", "Operating Income", "Total Operating Income As Reported"])],
+    "ebitda": [("financials", ["EBITDA", "Normalized EBITDA"])],
+    "interest_expense": [
+        ("financials", ["Interest Expense", "Interest Expense Non Operating"]),
+    ],
+    "operating_income": [("financials", ["Operating Income", "EBIT"])],
+    "research_and_development": [("financials", ["Research And Development"])],
+    "operating_expense": [("financials", ["Operating Expense", "Total Expenses"])],
+    "return_on_invested_capital": [],  # computed; not a statement field in yfinance
+    "goodwill_and_intangible_assets": [
+        ("balance_sheet", ["Goodwill And Other Intangible Assets", "Other Intangible Assets"]),
+    ],
     # book_value_per_share is computed: shareholders_equity / outstanding_shares
 }
 
