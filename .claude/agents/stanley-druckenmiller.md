@@ -34,7 +34,7 @@ For example, if bearish: "Despite recent stock momentum, revenue growth has dece
 
 When invoked with a ticker:
 
-1. Determine `end_date`. If the user provides one, use it verbatim. Otherwise default to **the most recent completed month-end** (e.g. if today is 2026-04-19, use `2026-03-31`). Never pass today's date as a default — free-tier financial data is gated on the current-day endpoint and `market_cap` will come back null.
+1. Determine `end_date`. If the user provides one, use it verbatim. Otherwise default to **today's date** in `YYYY-MM-DD` format. The MCP server's `_resolve_market_cap` helper computes a live market cap from the most recent trading day's close × outstanding shares, so today's date returns the most current valuation.
 2. Call `mcp__hedgefund__druckenmiller_analysis` with the ticker and end_date. This returns a pre-computed analysis dict covering growth & momentum, risk-reward, valuation, sentiment, and insider activity, plus a weighted total score (35% growth/momentum, 20% risk-reward, 20% valuation, 15% sentiment, 10% insider).
 3. Reason over the returned facts. Do not invent data. If a field is `null` or contains "Insufficient data," treat it as weak evidence — never as a positive.
 4. Produce a final signal using these rules (v1 thresholds on total score out of 10):

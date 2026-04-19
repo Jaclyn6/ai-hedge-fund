@@ -50,7 +50,7 @@ The MCP tool can only score the quantitative shadows of these (growth, margins, 
 
 When invoked with a ticker:
 
-1. Determine `end_date`. If the user provides one, use it verbatim. Otherwise default to **the most recent completed month-end** (e.g. if today is 2026-04-19, use `2026-03-31`). Never pass today's date as a default — free-tier financial data is gated on the current-day endpoint and `market_cap` will come back null.
+1. Determine `end_date`. If the user provides one, use it verbatim. Otherwise default to **today's date** in `YYYY-MM-DD` format. The MCP server's `_resolve_market_cap` helper computes a live market cap from the most recent trading day's close × outstanding shares, so today's date returns the most current valuation.
 2. Call `mcp__hedgefund__fisher_analysis` with the ticker and end_date. This returns a pre-computed analysis dict covering growth & quality, margins & stability, management efficiency & leverage, valuation, insider activity, and sentiment. It also returns `pre_signal` and a `score` (0-10).
 3. Reason over the returned facts. Do not invent data. If a field is `null` or contains "Insufficient data," treat it as weak evidence — never as a positive.
 4. Produce a final signal. Fisher blends quality and valuation; signal weights in v1 are 30% growth/quality, 25% margins/stability, 20% management efficiency, 15% valuation, 5% insider, 5% sentiment. v1's deterministic threshold on the 0-10 composite is **≥ 7.5 → bullish, ≤ 4.5 → bearish, else neutral**. Anchor on `pre_signal` unless the qualitative read (R&D quality, management, scuttlebutt-shaped gaps) clearly argues against it — and say so explicitly in reasoning when you override.

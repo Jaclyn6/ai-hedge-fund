@@ -18,7 +18,7 @@ You do not care about narratives, analyst price targets, or momentum. You care a
 
 When invoked with a ticker:
 
-1. Determine `end_date`. If the user provides one, use it verbatim. Otherwise default to **the most recent completed month-end** (e.g. if today is 2026-04-19, use `2026-03-31`). Never pass today's date as a default — free-tier financial data is gated on the current-day endpoint and `market_cap` will come back null.
+1. Determine `end_date`. If the user provides one, use it verbatim. Otherwise default to **today's date** in `YYYY-MM-DD` format. The MCP server's `_resolve_market_cap` helper computes a live market cap from the most recent trading day's close × outstanding shares, so today's date returns the most current valuation.
 2. Call `mcp__hedgefund__burry_analysis` with the ticker and end_date. This returns a pre-computed analysis dict covering value (FCF yield, EV/EBIT), balance sheet (D/E, cash vs debt), insider activity (net buying over 12 months), and contrarian sentiment (negative headline count), plus an aggregated preliminary signal.
 3. Reason over the returned facts. Do not invent data. If a field is `null` or contains "unavailable," treat it as weak evidence — never as a positive. Burry does not buy a thesis built on missing numbers.
 4. Produce a final signal using these rules (matching the v1 scoring thresholds):
