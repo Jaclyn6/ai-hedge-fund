@@ -19,8 +19,11 @@ def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str
     if len(metrics) < 2:
         return {"score": 0, "max_score": max_score, "details": "Insufficient history"}
 
-    # Revenue CAGR (oldest to latest)
-    revs = [m.revenue for m in reversed(metrics) if hasattr(m, "revenue") and m.revenue]
+    # Revenue CAGR (oldest to latest). Bug-fix vs v1: revenue lives on LineItem,
+    # not FinancialMetrics — v1 used `hasattr(m, "revenue")` which was always
+    # False, so CAGR was never computed. Pull from line_items.
+    revs = [getattr(li, "revenue", None) for li in reversed(line_items)]
+    revs = [r for r in revs if r]
     if len(revs) >= 2 and revs[0] > 0:
         cagr = (revs[-1] / revs[0]) ** (1 / (len(revs) - 1)) - 1
     else:
@@ -161,13 +164,20 @@ def calculate_intrinsic_value_dcf(metrics: list, line_items: list, risk_analysis
         return {"intrinsic_value": None, "details": ["Insufficient data"]}
 
     latest_m = metrics[0]
-    fcff0 = getattr(latest_m, "free_cash_flow", None)
+    # Bug fix vs v1: `free_cash_flow` is a LineItem field, not a FinancialMetrics
+    # field. v1 code had `getattr(latest_m, "free_cash_flow", None)` which always
+    # returned None because the Pydantic FinancialMetrics schema only has
+    # free_cash_flow_yield / _growth / _per_share — not raw free_cash_flow. Pull
+    # from line_items first with a metrics fallback for forward compatibility.
+    fcff0 = getattr(line_items[0], "free_cash_flow", None) or getattr(latest_m, "free_cash_flow", None)
     shares = getattr(line_items[0], "outstanding_shares", None)
     if not fcff0 or not shares:
         return {"intrinsic_value": None, "details": ["Missing FCFF or share count"]}
 
-    # Growth assumptions
-    revs = [m.revenue for m in reversed(metrics) if m.revenue]
+    # Growth assumptions — revenue is a LineItem field, not FinancialMetrics.
+    # Same bug pattern as fcff0 above.
+    revs = [getattr(li, "revenue", None) for li in reversed(line_items)]
+    revs = [r for r in revs if r]
     if len(revs) >= 2 and revs[0] > 0:
         base_growth = min((revs[-1] / revs[0]) ** (1 / (len(revs) - 1)) - 1, 0.12)
     else:

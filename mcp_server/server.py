@@ -898,7 +898,7 @@ def lynch_analysis(ticker: str, end_date: str) -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _DAMODARAN_LINE_ITEMS = [
-    "free_cash_flow", "ebit", "interest_expense", "capital_expenditure",
+    "revenue", "free_cash_flow", "ebit", "interest_expense", "capital_expenditure",
     "depreciation_and_amortization", "outstanding_shares", "net_income", "total_debt",
 ]
 
