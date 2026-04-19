@@ -17,7 +17,7 @@ Examples:
 - `AAPL 2025-03-31` → ticker `AAPL`, end_date `2025-03-31`
 - `AAPL,MSFT 2024-12-31` → two tickers, end_date `2024-12-31`
 
-If no date is given, default to **the most recent completed month-end** (e.g. if today is 2026-04-19, use `2026-03-31`). Do not ask the user, and do not use today's date — the free-tier financial data source gates `market_cap` on the current-day endpoint, so using today produces null valuations. Month-end dates hit the historical endpoint which is fully populated for AAPL, GOOGL, MSFT, NVDA, TSLA.
+If no date is given, default to **today's date** (`YYYY-MM-DD` format). Do not ask the user. The MCP server's `_resolve_market_cap` helper computes a live market cap from the most recent trading day's close × shares outstanding, so today's date gives the most current valuation.
 
 ## Execution
 
