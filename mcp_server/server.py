@@ -78,6 +78,51 @@ from src.agents.peter_lynch_analysis import (
     analyze_sentiment as lynch_sentiment,
     analyze_insider_activity as lynch_insider,
 )
+from src.agents.aswath_damodaran_analysis import (
+    analyze_growth_and_reinvestment as damodaran_growth,
+    analyze_risk_profile as damodaran_risk,
+    analyze_relative_valuation as damodaran_relval,
+    calculate_intrinsic_value_dcf as damodaran_dcf,
+)
+from src.agents.phil_fisher_analysis import (
+    analyze_fisher_growth_quality,
+    analyze_margins_stability,
+    analyze_management_efficiency_leverage as fisher_mgmt,
+    analyze_fisher_valuation,
+    analyze_insider_activity as fisher_insider,
+    analyze_sentiment as fisher_sentiment,
+)
+from src.agents.mohnish_pabrai_analysis import (
+    analyze_downside_protection,
+    analyze_pabrai_valuation,
+    analyze_double_potential,
+)
+from src.agents.rakesh_jhunjhunwala_analysis import (
+    analyze_growth as jhunjhunwala_growth,
+    analyze_profitability as jhunjhunwala_profit,
+    analyze_balance_sheet as jhunjhunwala_bs,
+    analyze_cash_flow as jhunjhunwala_cf,
+    analyze_management_actions as jhunjhunwala_mgmt,
+    assess_quality_metrics as jhunjhunwala_quality,
+    calculate_intrinsic_value as jhunjhunwala_iv,
+)
+from src.agents.stanley_druckenmiller_analysis import (
+    analyze_growth_and_momentum as druckenmiller_growth,
+    analyze_insider_activity as druckenmiller_insider,
+    analyze_sentiment as druckenmiller_sentiment,
+    analyze_risk_reward as druckenmiller_risk,
+    analyze_druckenmiller_valuation,
+)
+from src.agents.nassim_taleb_analysis import (
+    analyze_tail_risk as taleb_tail_risk,
+    analyze_antifragility as taleb_antifragility,
+    analyze_convexity as taleb_convexity,
+    analyze_fragility as taleb_fragility,
+    analyze_skin_in_game as taleb_skin,
+    analyze_volatility_regime as taleb_vol_regime,
+    analyze_black_swan_sentinel as taleb_black_swan,
+)
+from src.tools.api import prices_to_df
 
 mcp = FastMCP("hedgefund")
 
@@ -844,6 +889,382 @@ def lynch_analysis(ticker: str, end_date: str) -> dict:
         result,
         critical_fields=["market_cap"],
         analyzer_keys=["growth_analysis", "fundamentals_analysis", "valuation_analysis", "sentiment_analysis", "insider_analysis"],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Aswath Damodaran — story + numbers + disciplined DCF with CAPM cost of equity
+# ──────────────────────────────────────────────────────────────────────────────
+
+_DAMODARAN_LINE_ITEMS = [
+    "free_cash_flow", "ebit", "interest_expense", "capital_expenditure",
+    "depreciation_and_amortization", "outstanding_shares", "net_income", "total_debt",
+]
+
+
+@mcp.tool()
+def damodaran_analysis(ticker: str, end_date: str) -> dict:
+    """Aswath Damodaran's story + numbers + disciplined-valuation analysis.
+
+    Growth & reinvestment (revenue CAGR, FCF trend, ROIC vs 10% hurdle),
+    risk profile (beta, D/E, interest coverage), relative valuation (P/E
+    vs 5-yr median bands), and CAPM-based FCFF DCF. Signal triggers at
+    margin_of_safety >= +25% bullish or <= -25% bearish.
+    """
+    metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=10)
+    line_items = search_line_items(ticker, _DAMODARAN_LINE_ITEMS, end_date, period="ttm", limit=10)
+    market_cap = _resolve_market_cap(ticker, end_date)
+
+    growth = damodaran_growth(metrics, line_items)
+    risk = damodaran_risk(metrics, line_items)
+    relval = damodaran_relval(metrics)
+    intrinsic = damodaran_dcf(metrics, line_items, risk)
+
+    total_score = growth.get("score", 0) + risk.get("score", 0) + relval.get("score", 0)
+    max_score = growth.get("max_score", 0) + risk.get("max_score", 0) + relval.get("max_score", 0)
+    iv = intrinsic.get("intrinsic_value")
+    mos = ((iv - market_cap) / market_cap) if (iv and market_cap) else None
+
+    if mos is not None and mos >= 0.25:
+        pre_signal = "bullish"
+    elif mos is not None and mos <= -0.25:
+        pre_signal = "bearish"
+    else:
+        pre_signal = "neutral"
+
+    result = {
+        "ticker": ticker, "end_date": end_date, "pre_signal": pre_signal,
+        "score": total_score, "max_score": max_score,
+        "market_cap": market_cap, "intrinsic_value": iv, "margin_of_safety": mos,
+        "growth_analysis": growth, "risk_analysis": risk,
+        "relative_valuation_analysis": relval, "intrinsic_value_analysis": intrinsic,
+    }
+    result["data_quality"] = _assess_data_quality(
+        result,
+        critical_fields=["market_cap", "intrinsic_value", "margin_of_safety"],
+        analyzer_keys=["growth_analysis", "risk_analysis", "relative_valuation_analysis", "intrinsic_value_analysis"],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Phil Fisher — meticulous growth + 15 Points + scuttlebutt-style quality
+# ──────────────────────────────────────────────────────────────────────────────
+
+_FISHER_LINE_ITEMS = [
+    "revenue", "net_income", "earnings_per_share", "free_cash_flow",
+    "research_and_development", "operating_income", "operating_margin",
+    "gross_margin", "total_debt", "shareholders_equity", "cash_and_equivalents",
+    "ebit", "ebitda",
+]
+
+
+@mcp.tool()
+def fisher_analysis(ticker: str, end_date: str) -> dict:
+    """Phil Fisher's growth-quality analysis.
+
+    Weighting: 30% growth/quality + 25% margins stability + 20% mgmt efficiency
+    + 15% valuation + 5% insider + 5% sentiment. Signal at ≥7.5 bullish,
+    ≤4.5 bearish on the 0-10 composite.
+    """
+    metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
+    line_items = search_line_items(ticker, _FISHER_LINE_ITEMS, end_date, period="annual", limit=5)
+    market_cap = _resolve_market_cap(ticker, end_date)
+
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    start_date = (end_dt - timedelta(days=365)).strftime("%Y-%m-%d")
+    insider_trades = get_insider_trades(ticker, end_date, start_date=start_date, limit=1000)
+    news = get_company_news(ticker, end_date, start_date=start_date, limit=50)
+
+    growth_quality = analyze_fisher_growth_quality(line_items)
+    margins = analyze_margins_stability(line_items)
+    mgmt = fisher_mgmt(line_items)
+    valuation = analyze_fisher_valuation(line_items, market_cap)
+    insider = fisher_insider(insider_trades)
+    sentiment = fisher_sentiment(news)
+
+    total_score = (
+        growth_quality.get("score", 0) * 0.30
+        + margins.get("score", 0) * 0.25
+        + mgmt.get("score", 0) * 0.20
+        + valuation.get("score", 0) * 0.15
+        + insider.get("score", 0) * 0.05
+        + sentiment.get("score", 0) * 0.05
+    )
+    max_score = 10
+    pre_signal = "bullish" if total_score >= 7.5 else "bearish" if total_score <= 4.5 else "neutral"
+
+    result = {
+        "ticker": ticker, "end_date": end_date, "pre_signal": pre_signal,
+        "score": round(total_score, 2), "max_score": max_score, "market_cap": market_cap,
+        "growth_quality_analysis": growth_quality,
+        "margins_stability_analysis": margins,
+        "management_analysis": mgmt,
+        "valuation_analysis": valuation,
+        "insider_analysis": insider,
+        "sentiment_analysis": sentiment,
+    }
+    result["data_quality"] = _assess_data_quality(
+        result, critical_fields=["market_cap"],
+        analyzer_keys=["growth_quality_analysis", "margins_stability_analysis",
+                       "management_analysis", "valuation_analysis",
+                       "insider_analysis", "sentiment_analysis"],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Mohnish Pabrai — Dhandho, heads-I-win-tails-I-don't-lose-much
+# ──────────────────────────────────────────────────────────────────────────────
+
+_PABRAI_LINE_ITEMS = [
+    "revenue", "gross_profit", "gross_margin", "operating_income", "operating_margin",
+    "net_income", "free_cash_flow", "total_debt", "cash_and_equivalents",
+    "current_assets", "current_liabilities", "shareholders_equity",
+    "capital_expenditure", "depreciation_and_amortization", "outstanding_shares",
+]
+
+
+@mcp.tool()
+def pabrai_analysis(ticker: str, end_date: str) -> dict:
+    """Pabrai's Dhandho: downside protection × valuation × doubling potential.
+
+    Weighting: 45% downside + 35% valuation + 20% doubling. Signal at ≥7.5
+    bullish, ≤4.0 bearish on 0-10.
+    """
+    line_items = search_line_items(ticker, _PABRAI_LINE_ITEMS, end_date, period="annual", limit=8)
+    market_cap = _resolve_market_cap(ticker, end_date)
+
+    downside = analyze_downside_protection(line_items)
+    valuation = analyze_pabrai_valuation(line_items, market_cap)
+    double = analyze_double_potential(line_items, market_cap)
+
+    total_score = (
+        downside.get("score", 0) * 0.45
+        + valuation.get("score", 0) * 0.35
+        + double.get("score", 0) * 0.20
+    )
+    max_score = 10
+    pre_signal = "bullish" if total_score >= 7.5 else "bearish" if total_score <= 4.0 else "neutral"
+
+    result = {
+        "ticker": ticker, "end_date": end_date, "pre_signal": pre_signal,
+        "score": round(total_score, 2), "max_score": max_score, "market_cap": market_cap,
+        "downside_protection_analysis": downside,
+        "valuation_analysis": valuation,
+        "double_potential_analysis": double,
+    }
+    result["data_quality"] = _assess_data_quality(
+        result, critical_fields=["market_cap"],
+        analyzer_keys=["downside_protection_analysis", "valuation_analysis", "double_potential_analysis"],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rakesh Jhunjhunwala — long-term growth, patient conviction (Big Bull of India)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_JHUNJHUNWALA_LINE_ITEMS = [
+    "net_income", "earnings_per_share", "ebit", "operating_income",
+    "revenue", "operating_margin", "total_assets", "total_liabilities",
+    "current_assets", "current_liabilities", "free_cash_flow",
+    "dividends_and_other_cash_distributions", "issuance_or_purchase_of_equity_shares",
+]
+
+
+@mcp.tool()
+def jhunjhunwala_analysis(ticker: str, end_date: str) -> dict:
+    """Jhunjhunwala's long-term growth + quality analysis.
+
+    Raw sum of growth/profitability/balance-sheet/cash-flow/management scores
+    against max 24. Signal primarily via margin of safety (±30%) with
+    quality-score tiebreaker for neutral cases (v1 rule).
+    """
+    line_items = search_line_items(ticker, _JHUNJHUNWALA_LINE_ITEMS, end_date, period="ttm", limit=10)
+    market_cap = _resolve_market_cap(ticker, end_date)
+
+    growth = jhunjhunwala_growth(line_items)
+    profitability = jhunjhunwala_profit(line_items)
+    balance_sheet = jhunjhunwala_bs(line_items)
+    cash_flow = jhunjhunwala_cf(line_items)
+    management = jhunjhunwala_mgmt(line_items)
+    intrinsic_value = jhunjhunwala_iv(line_items, market_cap)
+    quality_score = jhunjhunwala_quality(line_items)
+
+    total_score = (
+        growth.get("score", 0) + profitability.get("score", 0)
+        + balance_sheet.get("score", 0) + cash_flow.get("score", 0)
+        + management.get("score", 0)
+    )
+    max_score = 24
+
+    mos = ((intrinsic_value - market_cap) / market_cap) if (intrinsic_value and market_cap) else None
+    if mos is not None and mos >= 0.30:
+        pre_signal = "bullish"
+    elif mos is not None and mos <= -0.30:
+        pre_signal = "bearish"
+    else:
+        if quality_score >= 0.7 and total_score >= max_score * 0.6:
+            pre_signal = "bullish"
+        elif quality_score <= 0.4 or total_score <= max_score * 0.3:
+            pre_signal = "bearish"
+        else:
+            pre_signal = "neutral"
+
+    result = {
+        "ticker": ticker, "end_date": end_date, "pre_signal": pre_signal,
+        "score": total_score, "max_score": max_score,
+        "market_cap": market_cap, "intrinsic_value": intrinsic_value,
+        "margin_of_safety": mos, "quality_score": quality_score,
+        "growth_analysis": growth, "profitability_analysis": profitability,
+        "balance_sheet_analysis": balance_sheet, "cash_flow_analysis": cash_flow,
+        "management_analysis": management,
+    }
+    result["data_quality"] = _assess_data_quality(
+        result, critical_fields=["market_cap"],
+        analyzer_keys=["growth_analysis", "profitability_analysis",
+                       "balance_sheet_analysis", "cash_flow_analysis", "management_analysis"],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Stanley Druckenmiller — macro/momentum + asymmetric risk-reward
+# ──────────────────────────────────────────────────────────────────────────────
+
+_DRUCKENMILLER_LINE_ITEMS = [
+    "revenue", "earnings_per_share", "net_income", "operating_income",
+    "gross_margin", "operating_margin", "free_cash_flow", "capital_expenditure",
+    "cash_and_equivalents", "total_debt", "shareholders_equity",
+    "outstanding_shares", "ebit", "ebitda",
+]
+
+
+@mcp.tool()
+def druckenmiller_analysis(ticker: str, end_date: str) -> dict:
+    """Druckenmiller's momentum + asymmetric-setup analysis.
+
+    Weighting: 35% growth/momentum + 20% risk-reward + 20% valuation + 15%
+    sentiment + 10% insider activity. Signal at ≥7.5 bullish, ≤4.5 bearish.
+    """
+    metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
+    line_items = search_line_items(ticker, _DRUCKENMILLER_LINE_ITEMS, end_date, period="annual", limit=5)
+    market_cap = _resolve_market_cap(ticker, end_date)
+
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    start_date = (end_dt - timedelta(days=365)).strftime("%Y-%m-%d")
+    prices = get_prices(ticker, start_date, end_date)
+    insider_trades = get_insider_trades(ticker, end_date, start_date=start_date, limit=1000)
+    news = get_company_news(ticker, end_date, start_date=start_date, limit=50)
+
+    growth_momentum = druckenmiller_growth(line_items, prices)
+    risk_reward = druckenmiller_risk(line_items, prices)
+    valuation = analyze_druckenmiller_valuation(line_items, market_cap)
+    sentiment = druckenmiller_sentiment(news)
+    insider = druckenmiller_insider(insider_trades)
+
+    total_score = (
+        growth_momentum.get("score", 0) * 0.35
+        + risk_reward.get("score", 0) * 0.20
+        + valuation.get("score", 0) * 0.20
+        + sentiment.get("score", 0) * 0.15
+        + insider.get("score", 0) * 0.10
+    )
+    max_score = 10
+    pre_signal = "bullish" if total_score >= 7.5 else "bearish" if total_score <= 4.5 else "neutral"
+
+    result = {
+        "ticker": ticker, "end_date": end_date, "pre_signal": pre_signal,
+        "score": round(total_score, 2), "max_score": max_score, "market_cap": market_cap,
+        "growth_momentum_analysis": growth_momentum,
+        "risk_reward_analysis": risk_reward,
+        "valuation_analysis": valuation,
+        "sentiment_analysis": sentiment,
+        "insider_analysis": insider,
+    }
+    result["data_quality"] = _assess_data_quality(
+        result, critical_fields=["market_cap"],
+        analyzer_keys=["growth_momentum_analysis", "risk_reward_analysis",
+                       "valuation_analysis", "sentiment_analysis", "insider_analysis"],
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Nassim Taleb — tail risk, antifragility, asymmetric payoffs
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TALEB_LINE_ITEMS = [
+    "free_cash_flow", "net_income", "total_debt", "cash_and_equivalents",
+    "total_assets", "total_liabilities", "revenue", "operating_income",
+    "research_and_development", "capital_expenditure", "outstanding_shares",
+]
+
+
+@mcp.tool()
+def taleb_analysis(ticker: str, end_date: str) -> dict:
+    """Taleb's tail-risk / antifragility analysis.
+
+    Seven analyzers: tail risk (price drawdowns), antifragility (convex
+    response to shocks), convexity (options-like payoff profile), fragility
+    (exposure to volatility / debt), skin in the game (insider buying),
+    volatility regime, and black-swan sentinel (news + price gaps).
+    Raw-sum scoring; max_scores implicitly weight the components.
+    """
+    metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=10)
+    line_items = search_line_items(ticker, _TALEB_LINE_ITEMS, end_date, period="ttm", limit=5)
+    market_cap = _resolve_market_cap(ticker, end_date)
+
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    start_date = (end_dt - timedelta(days=365 * 2)).strftime("%Y-%m-%d")
+    prices = get_prices(ticker, start_date, end_date)
+    prices_df = prices_to_df(prices) if prices else None
+    import pandas as pd
+    if prices_df is None:
+        prices_df = pd.DataFrame()
+    insider_trades = get_insider_trades(ticker, end_date, start_date=start_date, limit=1000)
+    news = get_company_news(ticker, end_date, start_date=start_date, limit=100)
+
+    tail_risk = taleb_tail_risk(prices_df)
+    antifragility = taleb_antifragility(metrics, line_items, market_cap)
+    convexity = taleb_convexity(metrics, line_items, prices_df, market_cap)
+    fragility = taleb_fragility(metrics, line_items)
+    skin = taleb_skin(insider_trades)
+    vol_regime = taleb_vol_regime(prices_df)
+    black_swan = taleb_black_swan(news, prices_df)
+
+    total_score = sum(a.get("score", 0) for a in [
+        tail_risk, antifragility, convexity, fragility, skin, vol_regime, black_swan
+    ])
+    max_score = sum(a.get("max_score", 0) for a in [
+        tail_risk, antifragility, convexity, fragility, skin, vol_regime, black_swan
+    ])
+
+    if max_score and total_score >= 0.7 * max_score:
+        pre_signal = "bullish"
+    elif max_score and total_score <= 0.3 * max_score:
+        pre_signal = "bearish"
+    else:
+        pre_signal = "neutral"
+
+    result = {
+        "ticker": ticker, "end_date": end_date, "pre_signal": pre_signal,
+        "score": total_score, "max_score": max_score, "market_cap": market_cap,
+        "tail_risk_analysis": tail_risk,
+        "antifragility_analysis": antifragility,
+        "convexity_analysis": convexity,
+        "fragility_analysis": fragility,
+        "skin_in_game_analysis": skin,
+        "volatility_regime_analysis": vol_regime,
+        "black_swan_analysis": black_swan,
+    }
+    result["data_quality"] = _assess_data_quality(
+        result, critical_fields=["market_cap"],
+        analyzer_keys=["tail_risk_analysis", "antifragility_analysis", "convexity_analysis",
+                       "fragility_analysis", "skin_in_game_analysis",
+                       "volatility_regime_analysis", "black_swan_analysis"],
     )
     return result
 
